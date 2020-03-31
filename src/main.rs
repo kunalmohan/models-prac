@@ -5,6 +5,9 @@ use winit::{
     dpi::PhysicalSize,
 };
 use std::time::{Instant, Duration};
+use image::GenericImageView;
+use std::mem::size_of;
+use std::path::Path;
 
 fn main() {
     let event_loop = EventLoop::new();
@@ -94,4 +97,118 @@ impl State {
         	queue,
         }
 	}
+}
+
+#[derive(Debug)]
+struct Texture {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+}
+
+impl Texture {
+    fn from_bytes(device: &wgpu::Device, bytes: &[u8]) -> Result<(Self, wgpu::CommandBuffer), failure::Error> {
+        let img = image::load_from_memory(bytes)?;
+        Self::from_image(device, &img)
+    }
+
+    fn from_image(device: &wgpu::Device, img: &image::DynamicImage) -> Result<(Self, wgpu::CommandBuffer), failure::Error> {
+        let rgba = img.as_rgba8().unwrap();
+        let dimensions = img.dimensions();
+
+        let size = wgpu::Extent3d{
+            width: dimensions.0,
+            height: dimensions.1,
+            depth: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            size,
+            array_layer_count: 1,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+        });
+
+        let buffer = device.create_buffer_mapped(rgba.len(), wgpu::BufferUsage::COPY_SRC).fill_from_slice(&rgba);
+
+        let mut encoder = device.create_command_encoder(&Default::default());
+
+        encoder.copy_buffer_to_texture(
+            wgpu::BufferCopyView {
+                buffer: &buffer,
+                offset: 0,
+                row_pitch: 4 * dimensions.0,
+                image_height: dimensions.1,
+            },
+            wgpu::TextureCopyView {
+                texture: &texture,
+                mip_level: 0,
+                array_layer: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            size,
+        );
+
+        let cmd_buffer = encoder.finish();
+
+        let view = texture.create_default_view();
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            lod_min_clamp: -100.0,
+            lod_max_clamp: 100.0,
+            compare_function: wgpu::CompareFunction::Always,
+        });
+
+        Ok((Self { texture, view, sampler }, cmd_buffer))
+    }
+
+    fn load<P: AsRef<Path>>(device: &wgpu::Device, path: P) -> Result<(Self, wgpu::CommandBuffer), failure::Error> {
+        let img = image::open(path)?;
+        Self::from_image(device, &img)
+    }
+}
+
+trait Vertex {
+    fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a>;
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct ModelVertex {
+    position: [f32; 3],
+    tex_coords: [f32; 2],
+    normal: [f32; 3],
+}
+
+impl Vertex for ModelVertex {
+    fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a> {
+        wgpu::VertexBufferDescriptor {
+            stride: size_of::<ModelVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttributeDescriptor {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float3,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    offset: size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float2,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    offset: size_of::<[f32; 5]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float3,
+                },
+            ],
+        }
+    }
 }
