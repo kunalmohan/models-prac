@@ -212,3 +212,81 @@ impl Vertex for ModelVertex {
         }
     }
 }
+
+#[derive(Debug)]
+struct Model {
+    meshes: Vec<Mesh>,
+    materials: Vec<Material>,
+}
+
+#[derive(Debug)]
+struct Mesh {
+    name: String,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_elements: u32,
+    material: usize,
+}
+
+#[derive(Debug)]
+struct Material {
+    name: String,
+    diffuse_texture: Texture,
+}
+
+impl Model {
+    fn load<P: AsRef<Path>>(device: &wgpu::Device, path: P) -> Result<(Self, Vec<wgpu::CommandBuffer>), failure::Error> {
+        let (obj_models, obj_materials) = tobj::load_obj(path.as_ref())?;
+
+        let folder = path.as_ref().parent().unwrap();
+
+        let mut command_buffers = Vec::new();
+
+        let mut materials = Vec::new();
+        for mat in obj_materials {
+            let diffuse_path = mat.diffuse_texture;
+            let (diffuse_texture, cmds) = Texture::load(&device, folder.join(diffuse_path))?;
+            materials.push(Material {
+                name: mat.name,
+                diffuse_texture,
+            });
+            command_buffers.push(cmds);
+        }
+
+        let mut meshes = Vec::new();
+        for m in obj_models {
+            let mut vertices = Vec::new();
+            for i in 0..m.mesh.position.len() / 3 {
+                vertices.push(ModelVertex {
+                    position: [
+                        m.mesh.positions[i * 3],
+                        m.mesh.positions[i * 3 + 1],
+                        m.mesh.positions[i * 3 + 2],
+                    ],
+                    tex_coords: [
+                        m.mesh.texcoords[i * 2],
+                        m.mesh.texcoords[i * 2 + 1],
+                    ],
+                    normal: [
+                        m.mesh.normals[i * 3],
+                        m.mesh.normals[i * 3 + 1],
+                        m.mesh.normals[i * 3 + 2],
+                    ],
+                });
+            }
+
+            let vertex_buffer = device.create_buffer_mapped(vertices.len(), wgpu::BufferUsage::VERTEX).fill_from_slice(&vertices);
+            let index_buffer = device.create_buffer_mapped(m.mesh.indices.len(), wgpu::BufferUsage::INDEX).fill_from_slice(&m.mesh.indices);
+
+            meshed.push(Mesh {
+                name: m.name,
+                vertex_buffer,
+                index_buffer,
+                num_elements: m.mesh.indices.len() as u32,
+                material: m.mesh.material_id.unwrap_or(0),
+            });
+        }
+
+        Ok((Self { meshes, materials, }, command_buffers))
+    }
+}
