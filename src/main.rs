@@ -113,7 +113,7 @@ impl State {
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
         let camera = Camera {
-            eye: (0.0, 0.0, -10.0).into(),
+            eye: (0.0, 5.0, -10.0).into(),
             target: (0.0, 0.0, 0.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: sc_desc.width as f32 / sc_desc.height as f32,
@@ -361,7 +361,7 @@ impl Texture {
     }
 
     fn load<P: AsRef<Path>>(device: &wgpu::Device, path: P) -> Result<(Self, wgpu::CommandBuffer), failure::Error> {
-        let img = image::open(path)?;
+        let img = image::io::Reader::open(path).unwrap().with_guessed_format().unwrap().decode()?;
         Self::from_image(device, &img)
     }
 }
